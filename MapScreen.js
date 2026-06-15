@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -27,6 +27,9 @@ const MapScreen = () => {
   const [bailoutCoords, setBailoutCoords] = useState([]);
   const [hazardModalVisible, setHazardModalVisible] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
+  const [isTransitActive, setIsTransitActive] = useState(false);
+  
+  const routeRequested = useRef(false);
   
   // Marion, Iowa center coordinate setup for testing
   const initialRegion = {
@@ -37,7 +40,7 @@ const MapScreen = () => {
   };
 
   const [startCoord, setStartCoord] = useState([-91.666, 41.978]);
-  const [endCoord, setEndCoord] = useState([-2.359, 42.499]);
+  const [endCoord, setEndCoord] = useState([-92.3587, 42.4995]);
   const [mapCenter, setMapCenter] = useState(initialRegion);
 
   useEffect(() => {
@@ -68,6 +71,7 @@ const MapScreen = () => {
   }, []);
 
   const fetchRUTRoute = async () => {
+    routeRequested.current = true;
     setLoading(true);
     setBailoutCoords([]); // Clear existing bailout overlays
     try {
@@ -79,12 +83,19 @@ const MapScreen = () => {
           latitude: c[1],
         }));
         setRouteCoords(mapped);
+        setIsTransitActive(true);
       }
     } catch (err) {
       Alert.alert('Routing Error', 'Could not generate RUT path. Ensure backend server is active.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const cancelRoute = () => {
+    setRouteCoords([]);
+    setBailoutCoords([]);
+    setIsTransitActive(false);
   };
 
   const runBailout = async () => {
@@ -147,9 +158,12 @@ const MapScreen = () => {
     );
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    fetchRUTRoute();
-  }, [unorthodoxyScore, startCoord, endCoord]);
+    if (routeRequested.current) {
+      fetchRUTRoute();
+    }
+  }, [unorthodoxyScore]);
 
   return (
     <View style={styles.container}>
@@ -195,7 +209,7 @@ const MapScreen = () => {
 
         {/* Start Point Marker */}
         <Marker 
-          draggable
+          draggable={!isTransitActive}
           coordinate={{ latitude: startCoord[1], longitude: startCoord[0] }} 
           title="Start" 
           pinColor="#00FF66"
@@ -207,7 +221,7 @@ const MapScreen = () => {
 
         {/* End Point Marker */}
         <Marker 
-          draggable
+          draggable={!isTransitActive}
           coordinate={{ latitude: endCoord[1], longitude: endCoord[0] }} 
           title="Destination" 
           pinColor="#00E5FF"
@@ -257,56 +271,87 @@ const MapScreen = () => {
 
         {/* Bottom Panel: Tactical Triggers */}
         <View style={styles.bottomPanel}>
-          {/* HUD Target Lock Row */}
-          <View style={styles.targetLockRow}>
-            <TouchableOpacity 
-              style={styles.lockButton}
-              activeOpacity={0.8}
-              onPress={() => {
-                if (mapCenter) {
-                  setStartCoord([mapCenter.longitude, mapCenter.latitude]);
-                }
-              }}
-            >
-              <Text style={styles.lockButtonText}>LOCK START</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.lockButton}
-              activeOpacity={0.8}
-              onPress={() => {
-                if (mapCenter) {
-                  setEndCoord([mapCenter.longitude, mapCenter.latitude]);
-                }
-              }}
-            >
-              <Text style={styles.lockButtonText}>LOCK DESTINATION</Text>
-            </TouchableOpacity>
-          </View>
+          {!isTransitActive ? (
+            <>
+              {/* Row 1: LOCK START / DESTINATION */}
+              <View style={styles.planningRow}>
+                <TouchableOpacity 
+                  style={styles.planningLockButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (mapCenter) {
+                      setStartCoord([mapCenter.longitude, mapCenter.latitude]);
+                    }
+                  }}
+                >
+                  <Text style={styles.planningLockText}>LOCK START</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.planningLockButton}
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    if (mapCenter) {
+                      setEndCoord([mapCenter.longitude, mapCenter.latitude]);
+                    }
+                  }}
+                >
+                  <Text style={styles.planningLockText}>LOCK DESTINATION</Text>
+                </TouchableOpacity>
+              </View>
 
-          <TouchableOpacity 
-            style={styles.hazardButton} 
-            activeOpacity={0.8}
-            onPress={() => setHazardModalVisible(true)}
-          >
-            <Text style={styles.hazardButtonText}>REPORT HAZARD</Text>
-          </TouchableOpacity>
+              {/* Row 2: ENGAGE DRIVE (Ignition Switch) */}
+              <TouchableOpacity 
+                style={[
+                  styles.engageButton,
+                  loading ? styles.engageButtonDisabled : styles.engageButtonEnabled
+                ]} 
+                activeOpacity={0.8}
+                disabled={loading}
+                onPress={fetchRUTRoute}
+              >
+                <Text style={[styles.engageButtonText, loading && styles.engageButtonTextDisabled]}>ENGAGE DRIVE</Text>
+                <Text style={[styles.engageButtonSubText, loading && styles.engageButtonSubTextDisabled]}>// COGNITIVE ROUTING OVERRIDE</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              {/* Row 1: REPORT HAZARD, BAIL OUT, SOS BEACON */}
+              <View style={styles.transitRow}>
+                <TouchableOpacity 
+                  style={styles.transitButtonHazard} 
+                  activeOpacity={0.8}
+                  onPress={() => setHazardModalVisible(true)}
+                >
+                  <Text style={[styles.transitButtonText, { color: '#000000' }]}>REPORT HAZARD</Text>
+                </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.bailoutButton} 
-            activeOpacity={0.8}
-            onPress={runBailout}
-          >
-            <Text style={styles.bailoutButtonText}>BAIL OUT</Text>
-          </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.transitButtonBailout} 
+                  activeOpacity={0.8}
+                  onPress={runBailout}
+                >
+                  <Text style={[styles.transitButtonText, { color: '#FFFFFF' }]}>BAIL OUT</Text>
+                </TouchableOpacity>
 
-          {/* UI.12 SOS Beacon Button */}
-          <TouchableOpacity 
-            style={styles.sosButton} 
-            activeOpacity={0.8}
-            onPress={sendEmergencySOS}
-          >
-            <Text style={styles.sosButtonText}>SOS BEACON</Text>
-          </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.transitButtonSos} 
+                  activeOpacity={0.8}
+                  onPress={sendEmergencySOS}
+                >
+                  <Text style={[styles.transitButtonText, { color: '#FF3333' }]}>SOS BEACON</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Row 2: CANCEL MISSION // RESET PLAN */}
+              <TouchableOpacity 
+                style={styles.cancelMissionButton} 
+                activeOpacity={0.8}
+                onPress={cancelRoute}
+              >
+                <Text style={styles.cancelMissionButtonText}>CANCEL MISSION // RESET PLAN</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </SafeAreaView>
 
@@ -394,65 +439,6 @@ const styles = StyleSheet.create({
     margin: 16,
     pointerEvents: 'auto',
   },
-  hazardButton: {
-    backgroundColor: '#FFCC00',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginBottom: 12,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
-    elevation: 8,
-  },
-  hazardButtonText: {
-    color: '#000000',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  bailoutButton: {
-    backgroundColor: '#FF3333',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    paddingVertical: 18,
-    borderRadius: 8,
-    alignItems: 'center',
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
-    elevation: 8,
-  },
-  bailoutButtonText: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
-  sosButton: {
-    backgroundColor: '#000000',
-    borderWidth: 3,
-    borderColor: '#FF3333',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 5,
-    elevation: 8,
-  },
-  sosButtonText: {
-    color: '#FF3333',
-    fontSize: 16,
-    fontWeight: '900',
-    letterSpacing: 2,
-  },
   reticleContainer: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
@@ -478,31 +464,152 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#00FF66',
   },
-  targetLockRow: {
+  planningRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 12,
+    width: '100%',
   },
-  lockButton: {
-    flex: 1,
+  planningLockButton: {
+    width: '48%',
     backgroundColor: 'rgba(20, 20, 20, 0.95)',
     borderWidth: 2,
     borderColor: '#00FF66',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
-    marginHorizontal: 6,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.5,
     shadowRadius: 3,
     elevation: 5,
   },
-  lockButtonText: {
+  planningLockText: {
     color: '#00FF66',
     fontSize: 12,
     fontWeight: '900',
     letterSpacing: 1.5,
+  },
+  engageButton: {
+    width: '100%',
+    borderWidth: 3,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 12,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5,
+    shadowRadius: 5,
+    elevation: 8,
+  },
+  engageButtonEnabled: {
+    backgroundColor: '#00FF66',
+    borderColor: '#FFFFFF',
+  },
+  engageButtonDisabled: {
+    backgroundColor: '#444444',
+    borderColor: '#444444',
+    opacity: 0.6,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  engageButtonText: {
+    color: '#000000',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  engageButtonTextDisabled: {
+    color: '#888888',
+  },
+  engageButtonSubText: {
+    color: '#000000',
+    fontSize: 9,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    marginTop: 1,
+  },
+  engageButtonSubTextDisabled: {
+    color: '#888888',
+  },
+  transitRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    width: '100%',
+  },
+  transitButtonHazard: {
+    width: '31%',
+    backgroundColor: '#FFCC00',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  transitButtonBailout: {
+    width: '31%',
+    backgroundColor: '#FF3333',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  transitButtonSos: {
+    width: '31%',
+    backgroundColor: '#000000',
+    borderWidth: 2,
+    borderColor: '#FF3333',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  transitButtonText: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
+  cancelMissionButton: {
+    width: '100%',
+    backgroundColor: 'rgba(20, 20, 20, 0.95)',
+    borderWidth: 2,
+    borderColor: '#5a3b3b',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  cancelMissionButtonText: {
+    color: '#cc6666',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 2,
   },
 });
 
